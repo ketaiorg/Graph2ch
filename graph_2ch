@@ -1,0 +1,286 @@
+#!/usr/bin/php
+<?php
+/* vim: set noexpandtab tabstop=4 shiftwidth=4 softtabstop=4: */
+/**
+ * Graph2ch
+ * 2chのスレッドの勢いを数値化し出力するためのスクリプト
+ * 主にグラフ生成プログラムに渡すために使われる
+ *
+ * @package		Graph2ch
+ * @author		松井 健太郎 (Kentaro Matsui) <info@ke-tai.org>
+ * @copyright	ke-tai.org
+ * @license		BSD
+ **/
+
+// 引数チェック
+if (!isset($argv[1])) {
+	fputs(STDERR, "Usage: graph_2ch CONFIG_FILE\n");
+	exit(1);
+}
+
+// 実行
+$g2ch = new Graph2ch();
+$g2ch->run($argv[1]);
+exit(0);
+
+
+/**
+ * Graph2chクラス
+ */
+class Graph2ch
+{
+	// 定義
+	const MENU_LIST_URL = 'http://menu.2ch.net/bbsmenu.html';
+
+	protected $config;			// 設定を格納した配列
+	protected $board_url;		// 板のURL（移転対応のためクラス変数として保持）
+
+	/**
+	 * 実行
+	 * @param string $config_file コンフィグファイルのパス
+	 */
+	public function run($config_file)
+	{
+		// コンフィグファイルの読み込み
+		$this->config = $this->readConfigFile($config_file);
+
+		// 板一覧から対象板のURLを取得
+		$this->board_url = $this->getBordUrl($this->config['BoardName']);
+
+		// 板からスレッド一覧を取得
+		$thread_list = $this->getThreadList($this->board_url . $this->config['BoardName']);
+
+		// スレッド一覧からキーワードで最新スレッドを特定
+		$thread_info = $this->searchThreadList($thread_list, $this->config['Keyword']);
+
+		// レスを取得
+		$res_list = $this->getResList($thread_info['dat']);
+
+		// スレッドの勢いを調べる
+		$forces = $this->getForces($res_list);
+
+		// 出力
+		print $forces;
+	}
+
+	/**
+	 * コンフィグファイルの読み込み
+	 * @param string $config_file コンフィグファイルのパス
+	 * @return array 設定値の配列
+	 */
+	protected function readConfigFile($config_file)
+	{
+		if (file_exists($config_file)) {
+			// ファイルの読み込み
+			$config_text = file_get_contents($config_file);
+		} else {
+			$config_text = false;
+		}
+
+		if (false === $config_text) {
+			// ファイルが読めなかった場合
+			fputs(STDERR, 'Unnable read config file. (' . $config_file . ')' . "\n");
+			exit(1);
+		}
+
+		// デコード処理
+		$config_arr = json_decode($config_text, true);
+		if (null === $config_arr) {
+			// 不正なjson形式
+			fputs(STDERR, 'Syntax error config file. (' . $config_file . ')' . "\n");
+			exit(1);
+		}
+
+		// 必須項目チェック
+		$required_keys = array(
+			'BoardName',
+			'Keyword',
+			'Period',
+		);
+		$config_keys = array_keys($config_arr);
+		foreach ($required_keys as $key) {
+			if (!in_array($key, $config_keys)) {
+				// 必須項目がセットされていない
+				fputs(STDERR, '"' . $key . '" is required on config file.' . "\n");
+				exit(1);
+			}
+		}
+
+		return $config_arr;
+	}
+
+	/**
+	 * 板URLの取得
+	 * @param string $board_name 対象板
+	 * @return string 板のURL
+	 */
+	protected function getBordUrl($board_name)
+	{
+		$pattern = sprintf('/^\<A HREF=(.+\.2ch\.net\/)%s\/\>.*$/i', $board_name);
+		$menu_list = explode("\n", $this->getUrl(self::MENU_LIST_URL));
+		foreach ($menu_list as $line) {
+			if (preg_match($pattern, $line, $matches)) {
+				// 対象の板が見つかったらそれをURL形式にして返す
+				return $matches[1];
+			}
+		}
+
+		// 対象板が見つからなかった
+		fputs(STDERR, 'No match board (' . $board_name . ")\n");
+		exit(1);
+	}
+
+	/**
+	 * スレ一覧の取得
+	 * @param string $board_url 対象板のURL
+	 * @return array スレッドリスト
+	 */
+	protected function getThreadList($board_url)
+	{
+		try {
+			$thread_list = $this->getUrl($board_url . '/subject.txt');
+			if (5 > substr_count($thread_list, "\n")) {
+				// 移転と判断
+				throw new Exception('Server Moved', -200);		// 特別なステータスコードを使い例外を投げる
+			}
+		} catch (Exception $e) {
+			if ('302' == $e->getCode() or '404' == $e->getCode() or '-200' == $e->getCode()) {
+				// サーバが移転している場合
+				try {
+					$moved_html = $this->getUrl($board_url . '/index.html');
+					if (preg_match('/.*window.location.href="(.+\/)(.+)\/".*/', $moved_html, $matches)) {
+						// 移転があったので板URLを更新
+						$this->board_url = $matches[1];
+
+						// 再帰処理でスレッドリストを取得
+						return $this->getThreadList($this->board_url . $matches[2]);
+					}
+				} catch (Exception $sub_e) {
+					// 移転先の取得失敗
+					fputs(STDERR, 'Moved server get error. (' . $e->getCode() . '->' . $sub_e->getCode() . ")\n");
+					exit(1);
+				}
+			} else {
+				// スレッド一覧の取得失敗
+				fputs(STDERR, 'Thread list fetch error. (' . $e->getCode() . ")\n");
+				exit(1);
+			}
+		}
+
+		return mb_convert_encoding($thread_list, 'UTF-8', 'SJIS');
+	}
+
+	/**
+	 * スレッドリスト検索
+	 * @param string $thread_list スレッドリスト文字列
+	 * @param string $keyword 検索文字列
+	 * @return array スレッド情報を格納した連想配列
+	 */
+	protected function searchThreadList($thread_list, $keyword)
+	{
+		$ret_arr = array();
+		$thread_list_arr = explode("\n", $thread_list);
+		foreach ($thread_list_arr as $thread) {
+			if (preg_match($keyword, $thread)) {
+				if (preg_match('/^(.*)<>(.*) \(([0-9]+)\)$/', $thread, $matches)) {
+					$ret_arr = array(
+						'dat' => $matches[1],
+						'name' => $matches[2],
+						'res' => $matches[3],
+					);
+				}
+				break;
+			}
+		}
+
+		return $ret_arr;
+	}
+
+	/**
+	 * レス取得
+	 * @param string $dat dat番号
+	 * @return array レス情報を格納した連想配列
+	 */
+	protected function getResList($dat)
+	{
+		$url = $this->board_url . $this->config['BoardName'] . '/dat/' . $dat;
+
+		// datファイルを取得
+		$dat_contents = $this->getUrl($url);
+		$dat_arr = explode("\n", $dat_contents);
+		array_pop($dat_arr);		// 配列の最後には空要素が入るのでカット
+
+		return $dat_arr;
+	}
+
+	/**
+	 * 勢い取得
+	 * 勢いの算出方法は2ch勢いランキングに準拠
+	 * @param array $res_list レス情報を格納した配列
+	 * @return int 勢いを表す数字
+	 */
+	protected function getForces($res_list)
+	{
+		// 期間内に投稿されたレスの数を取得
+		$res_value = count($res_list);		// 現在のレス数
+		$start = count($res_list) - 1;		// 配列は0から始まるのでマイナス1
+
+		// 後ろから検索
+		for ($i = $start; $i >= 0; $i--) {
+			$tmp_arr = explode('<>', $res_list[$i]);
+			$res_ts = strtotime(mb_substr($tmp_arr[2], 0, 10) . ' ' . mb_substr($tmp_arr[2], -23, 8));
+			if (time() - $this->config['Period'] > $res_ts) {
+				// ここまでが期間内
+				$res_value = $res_value - $i;
+				break;
+			}
+		}
+
+		// 勢いを計算（1日あたりの書き込み数相当に変換）
+		$forces = $res_value * ((24 * 60 * 60) / $this->config['Period']);
+
+		return $forces;
+	}
+
+	/**
+	 * URLリクエストメソッド
+	 * curlによるリクエストを行う
+	 * @param string $url 対象URL
+	 * @param string $last_access 前回アクセスしたUNIXTIME形式の時間(If-Modified-Sinceヘッダ用)
+	 * @return string 結果文字列
+	 * @throws Exception 予期せぬステータスコード
+	 */
+	protected function getUrl($url, $last_access = 0)
+	{
+		// cURLを利用
+		$ch = curl_init();
+		curl_setopt($ch, CURLOPT_URL, $url);
+		curl_setopt($ch, CURLOPT_HEADER, 0);
+		curl_setopt($ch, CURLOPT_TIMEVALUE, $last_access);
+		curl_setopt($ch, CURLOPT_TIMECONDITION, CURL_TIMECOND_IFMODSINCE);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+		curl_setopt($ch, CURLOPT_ENCODING, 'gzip');
+		$ret = curl_exec($ch);
+
+		if (false === $ret) {
+			// curlに失敗した（通信エラー）
+			curl_close($ch);
+			throw new Exception('curl error.');
+		}
+
+		// ステータスコードを取得
+		$header = curl_getinfo($ch);
+		curl_close($ch);
+		$status_code = $header['http_code'];
+
+		// ステータスコードで分岐
+		if ('200' == $status_code) {
+			// 200 OKの場合、データを返す
+			return $ret;
+		} else {
+			// その他の場合、例外を投げる
+			throw new Exception('status code error. code=' . $status_code, $status_code);
+		}
+	}
+}
+
