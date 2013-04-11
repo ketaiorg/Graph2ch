@@ -218,6 +218,7 @@ class Graph2ch
 	 * 勢いの算出方法は2ch勢いランキングに準拠
 	 * @param array $res_list レス情報を格納した配列
 	 * @return int 勢いを表す数字
+	 * @link http://2ch-ranking.net/preface.html
 	 */
 	protected function getForces($res_list)
 	{
@@ -238,6 +239,19 @@ class Graph2ch
 
 		// 勢いを計算（1日あたりの書き込み数相当に変換）
 		$forces = $res_value * ((24 * 60 * 60) / $this->config['Period']);
+
+		// 小数点以下2桁で管理
+		$forces = round($forces, 2);
+
+		// スレ立て補正 書き込み数10未満->勢い100未満
+		if (10 > $res_value) {
+			max($forces, 99.99);
+		}
+
+		// スレ立て補正 書き込み数5未満->勢い10未満
+		if (5 > $res_value) {
+			max($forces, 9.99);
+		}
 
 		return $forces;
 	}
