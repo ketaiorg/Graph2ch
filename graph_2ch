@@ -53,11 +53,17 @@ class Graph2ch
 		// スレッド一覧からキーワードで最新スレッドを特定
 		$thread_info = $this->searchThreadList($thread_list, $this->config['Keyword']);
 
-		// レスを取得
-		$res_list = $this->getResList($thread_info['dat']);
+		// キーワードに一致するスレッドがあったかで分岐
+		if (empty($thread_info)) {
+			// 対象スレッド無し
+			$forces = 0;
+		} else {
+			// レスを取得
+			$res_list = $this->getResList($thread_info['dat']);
 
-		// スレッドの勢いを調べる
-		$forces = $this->getForces($res_list);
+			// スレッドの勢いを調べる
+			$forces = $this->getForces($res_list);
+		}
 
 		// 出力
 		print $forces;
