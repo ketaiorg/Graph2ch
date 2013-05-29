@@ -51,22 +51,30 @@ class Graph2ch
 		$thread_list = $this->getThreadList($this->board_url . $this->config['BoardName']);
 
 		// スレッド一覧からキーワードで最新スレッドを特定
-		$thread_info = $this->searchThreadList($thread_list, $this->config['Keyword']);
+		$threads = $this->searchThreadList($thread_list, $this->config['Keyword']);
 
 		// キーワードに一致するスレッドがあったかで分岐
-		if (empty($thread_info)) {
-			// 対象スレッド無し
-			$forces = 0;
-		} else {
-			// レスを取得
-			$res_list = $this->getResList($thread_info['dat']);
+		$output_forces = 0;
+		foreach ($threads as $th) {
+			if (empty($threads)) {
+				// 対象スレッド無し
+				$forces = 0;
+			} else {
+				// レスを取得
+				$res_list = $this->getResList($th['dat']);
 
-			// スレッドの勢いを調べる
-			$forces = $this->getForces($res_list);
+				// スレッドの勢いを調べる
+				$forces = $this->getForces($res_list);
+			}
+
+			// 一番勢いの高いものを出力する
+			if ($forces > $output_forces) {
+				$output_forces = $forces;
+			}
 		}
 
 		// 出力
-		print $forces;
+		print $output_forces;
 	}
 
 	/**
@@ -180,7 +188,7 @@ class Graph2ch
 	 * スレッドリスト検索
 	 * @param string $thread_list スレッドリスト文字列
 	 * @param string $keyword 検索文字列
-	 * @return array スレッド情報を格納した連想配列
+	 * @return array スレッド情報を格納した配列
 	 */
 	protected function searchThreadList($thread_list, $keyword)
 	{
@@ -189,13 +197,12 @@ class Graph2ch
 		foreach ($thread_list_arr as $thread) {
 			if (preg_match($keyword, $thread)) {
 				if (preg_match('/^(.*)<>(.*) \(([0-9]+)\)$/', $thread, $matches)) {
-					$ret_arr = array(
+					$ret_arr[] = array(
 						'dat' => $matches[1],
 						'name' => $matches[2],
 						'res' => $matches[3],
 					);
 				}
-				break;
 			}
 		}
 
