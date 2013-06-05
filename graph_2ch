@@ -31,6 +31,7 @@ class Graph2ch
 {
 	// 定義
 	const MENU_LIST_URL = 'http://menu.2ch.net/bbsmenu.html';
+	const DAT_CACHE_URL = 'http://bg20.2ch.net/test/r.so/';
 
 	protected $config;			// 設定を格納した配列
 	protected $board_url;		// 板のURL（移転対応のためクラス変数として保持）
@@ -216,7 +217,13 @@ class Graph2ch
 	 */
 	protected function getResList($dat)
 	{
-		$url = $this->board_url . $this->config['BoardName'] . '/dat/' . $dat;
+		if ('' === self::DAT_CACHE_URL) {
+			// 通常のサーバからdatを取得
+			$url = $this->board_url . $this->config['BoardName'] . '/dat/' . $dat;
+		} else {
+			// バーボンハウスを避けるためクローラ用サーバからdatを取得
+			$url = self::DAT_CACHE_URL . strtr($this->board_url, array('http://' => '')) . $this->config['BoardName'] . '/' . strtr($dat, array('.dat' => '')) . '/';
+		}
 
 		// datファイルを取得
 		$dat_contents = $this->getUrl($url);
