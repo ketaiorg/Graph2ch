@@ -75,12 +75,14 @@ class Graph2ch
 	/**
 	 * 設定デフォルト値取得
 	 * @return array 設定値の配列
+	 * @see http://info.2ch.net/wiki/index.php?%A4%C8%A4%AB%A4%B2%A4%CE%BF%AC%C8%F8%C0%DA%A4%EA%2F%A5%D0%A1%BC%A5%DC%A5%F3%A5%CF%A5%A6%A5%B9#content_2_19
 	 */
 	protected function getDefaultConfig()
 	{
 		return array(
 			'MenuListUrl' => 'http://menu.2ch.net/bbsmenu.html',
-			'DatCacheUrl' => 'http://bg20.2ch.net/test/r.so/',
+			'DatCacheUrl' => '',
+			//'DatCacheUrl' => 'http://bg20.2ch.net/test/r.so/',		// バーボンハウス入りを避けることができるキャッシュサーバ
 			'Period' => '3600',
 			'CacheDir' => './.graph_2ch_cache',		// プログラム本体のディレクトリを起点とする
 			'CacheExpire' => '86400',
@@ -144,25 +146,8 @@ class Graph2ch
 		// 検索パターン
 		$pattern = sprintf('/^\<A HREF=(.+\.2ch\.net\/)%s\/\>.*$/i', $board_name);
 
-		// キャッシュファイルの読み込み
-		$cache_file = $this->config['CacheDir'] . '/bbsmenu.html';
-		$last_access = $this->getCacheTimestamp($cache_file);
-
-		try {
-			// 通信してデータを取得
-			$menu_list_html = $this->getUrl($this->config['MenuListUrl'], $last_access);
-
-			// キャッシュファイルに保存
-			$this->putCacheFile($cache_file, $menu_list_html);
-		} catch (Exception $e) {
-			if ('304' == $e->getCode() and file_exists($cache_file)) {
-				// キャッシュファイルを利用
-				$menu_list_html = file_get_contents($cache_file);
-			} else {
-				// その他のエラーはそのままスロー
-				throw $e;
-			}
-		}
+		// メニューリストを取得
+		$menu_list_html = $this->getUrl($this->config['MenuListUrl'], true);
 
 		// ループして対象を検索
 		$menu_list = explode("\n", $menu_list_html);
@@ -188,7 +173,7 @@ class Graph2ch
 	protected function getThreadList($board_url)
 	{
 		try {
-			$thread_list = $this->getUrl($board_url . '/subject.txt');
+			$thread_list = $this->getUrl($board_url . '/subject.txt', true);
 			if (5 > substr_count($thread_list, "\n")) {
 				// 移転と判断
 				throw new Exception('Server Moved', -200);		// 特別なステータスコードを使い例外を投げる
@@ -197,7 +182,7 @@ class Graph2ch
 			if ('302' == $e->getCode() or '404' == $e->getCode() or '-200' == $e->getCode()) {
 				// サーバが移転している場合
 				try {
-					$moved_html = $this->getUrl($board_url . '/index.html');
+					$moved_html = $this->getUrl($board_url . '/index.html', false);
 					if (preg_match('/.*window.location.href="(.+\/)(.+)\/".*/', $moved_html, $matches)) {
 						// 移転があったので板URLを更新
 						$this->board_url = $matches[1];
@@ -253,16 +238,11 @@ class Graph2ch
 		// キーワードに一致するスレッドがあったかで分岐
 		$output_forces = 0;
 		foreach ($threads as $th) {
-			if (empty($threads)) {
-				// 対象スレッド無し
-				$forces = 0;
-			} else {
-				// レスを取得
-				$res_list = $this->getResList($th['dat']);
+			// レスを取得
+			$res_list = $this->getResList($th['dat']);
 
-				// スレッドの勢いを調べる
-				$forces = $this->getForces($res_list);
-			}
+			// スレッドの勢いを調べる
+			$forces = $this->getForces($res_list);
 
 			// 一番勢いの高いものを出力する
 			if ($forces > $output_forces) {
@@ -289,7 +269,7 @@ class Graph2ch
 		}
 
 		// datファイルを取得
-		$dat_contents = $this->getUrl($url);
+		$dat_contents = $this->getUrl($url, true);
 		$dat_arr = explode("\n", $dat_contents);
 		array_pop($dat_arr);		// 配列の最後には空要素が入るのでカット
 
@@ -343,17 +323,25 @@ class Graph2ch
 	 * URLリクエストメソッド
 	 * curlによるリクエストを行う
 	 * @param string $url 対象URL
-	 * @param string $last_access 前回アクセスしたUNIXTIME形式の時間(If-Modified-Sinceヘッダ用)
+	 * @param string $use_cache If-Modified-Sinceヘッダを使ったキャッシュ機構を利用するか
 	 * @return string 結果文字列
 	 * @throws Exception 予期せぬステータスコード
 	 */
-	protected function getUrl($url, $last_access = 0)
+	protected function getUrl($url, $use_cache = false)
 	{
+		// キャッシュファイルの読み込み
+		$cache_file = $this->config['CacheDir'] . '/' . urlencode($url);
+		if (true == $use_cache) {
+			$opt_timevalue = $this->getCacheTimestamp($cache_file);
+		} else {
+			$opt_timevalue = 0;
+		}
+
 		// cURLを利用
 		$ch = curl_init();
 		curl_setopt($ch, CURLOPT_URL, $url);
 		curl_setopt($ch, CURLOPT_HEADER, 0);
-		curl_setopt($ch, CURLOPT_TIMEVALUE, $last_access);
+		curl_setopt($ch, CURLOPT_TIMEVALUE, $opt_timevalue);
 		curl_setopt($ch, CURLOPT_TIMECONDITION, CURL_TIMECOND_IFMODSINCE);
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
 		curl_setopt($ch, CURLOPT_ENCODING, 'gzip');
@@ -372,12 +360,21 @@ class Graph2ch
 
 		// ステータスコードで分岐
 		if ('200' == $status_code) {
-			// 200 OKの場合、データを返す
-			return $ret;
+			// 200 OKの場合、そのまま取得したデータを返す
+			if (true == $use_cache) {
+				// キャッシュデータを保存
+				$this->putCacheFile($cache_file, $ret);
+			}
+		} elseif (true == $use_cache and '304' == $status_code and file_exists($cache_file)) {
+			// 304の場合、キャッシュデータを利用する
+			$ret = file_get_contents($cache_file);
 		} else {
 			// その他の場合、例外を投げる
 			throw new Exception('cURL status code error. code=' . $status_code, $status_code);
 		}
+
+		// 取得した値を返す
+		return $ret;
 	}
 
 	/**
@@ -389,17 +386,17 @@ class Graph2ch
 	 */
 	protected function getCacheTimestamp($file_name)
 	{
-		$last_access = 0;
+		$timestamp = 0;
 		if (file_exists($file_name)) {
 			// キャッシュファイルが存在
 			$cache_mtime = filemtime($file_name);		// キャッシュが作られたタイムスタンプを取得
 			if (time() - $cache_mtime < $this->config['CacheExpire']) {
 				// キャッシュの有効期限がまだ切れていない
-				$last_access = $cache_mtime;
+				$timestamp = $cache_mtime;
 			}
 		}
 
-		return $last_access;
+		return $timestamp;
 	}
 
 	/**
