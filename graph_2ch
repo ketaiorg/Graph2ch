@@ -12,18 +12,21 @@
  * @license		BSD
  **/
 
-// カレントディレクトリ位置の変更
-chdir(dirname(__FILE__));
-
 // 引数チェック
 if (!isset($argv[1])) {
 	fputs(STDERR, "Usage: graph_2ch CONFIG_FILE\n");
 	exit(1);
 }
 
+// 設定ファイルの位置を取得
+$config_file = realpath($argv[1]);
+
+// カレントディレクトリ位置の変更
+chdir(dirname(__FILE__));
+
 // 実行
 $g2ch = new Graph2ch();
-$g2ch->run($argv[1]);
+$g2ch->run($config_file);
 exit(0);
 
 
@@ -32,10 +35,6 @@ exit(0);
  */
 class Graph2ch
 {
-	// 定義
-	const MENU_LIST_URL = 'http://menu.2ch.net/bbsmenu.html';
-	const DAT_CACHE_URL = 'http://bg20.2ch.net/test/r.so/';
-
 	protected $config;			// 設定を格納した配列
 	protected $board_url;		// 板のURL（移転対応のためクラス変数として保持）
 
@@ -82,6 +81,20 @@ class Graph2ch
 	}
 
 	/**
+	 * 設定デフォルト値取得
+	 * @return array 設定値の配列
+	 */
+	protected function getDefaultConfig()
+	{
+		return array(
+			'MenuListUrl' => 'http://menu.2ch.net/bbsmenu.html',
+			'DatCacheUrl' => 'http://bg20.2ch.net/test/r.so/',
+			'Period' => '3600',
+			'CacheDir' => './.graph_2ch_cache',
+		);
+	}
+
+	/**
 	 * コンフィグファイルの読み込み
 	 * @param string $config_file コンフィグファイルのパス
 	 * @return array 設定値の配列
@@ -93,23 +106,29 @@ class Graph2ch
 			$config_text = file_get_contents($config_file);
 		} else {
 			// ファイルが読めなかった場合
-			fputs(STDERR, 'Unnable read config file. (' . $config_file . ')' . "\n");
+			fputs(STDERR, 'Unable to read config file.' . "\n");
 			exit(1);
 		}
 
+		// 設定初期値の取得
+		$config_arr = $this->getDefaultConfig();
+
 		// デコード処理
-		$config_arr = json_decode($config_text, true);
-		if (null === $config_arr) {
+		$add_config_arr = json_decode($config_text, true);
+		if (null === $add_config_arr) {
 			// 不正なjson形式
 			fputs(STDERR, 'Syntax error config file. (' . $config_file . ')' . "\n");
 			exit(1);
 		}
+		$config_arr = array_merge($config_arr, $add_config_arr);
 
 		// 必須項目チェック
 		$required_keys = array(
+			'MenuListUrl',
 			'BoardName',
 			'Keyword',
 			'Period',
+			'CacheDir',
 		);
 		$config_keys = array_keys($config_arr);
 		foreach ($required_keys as $key) {
@@ -134,7 +153,7 @@ class Graph2ch
 		$pattern = sprintf('/^\<A HREF=(.+\.2ch\.net\/)%s\/\>.*$/i', $board_name);
 
 		// 通信してデータを取得
-		$menu_list_html = $this->getUrl(self::MENU_LIST_URL);
+		$menu_list_html = $this->getUrl($this->config['MenuListUrl']);
 
 		// ループして対象を検索
 		$menu_list = explode("\n", $menu_list_html);
@@ -222,12 +241,12 @@ class Graph2ch
 	 */
 	protected function getResList($dat)
 	{
-		if ('' === self::DAT_CACHE_URL) {
+		if ('' === $this->config['DatCacheUrl']) {
 			// 通常のサーバからdatを取得
 			$url = $this->board_url . $this->config['BoardName'] . '/dat/' . $dat;
 		} else {
 			// バーボンハウスを避けるためクローラ用サーバからdatを取得
-			$url = self::DAT_CACHE_URL . strtr($this->board_url, array('http://' => '')) . $this->config['BoardName'] . '/' . strtr($dat, array('.dat' => '')) . '/';
+			$url = $this->config['DatCacheUrl'] . strtr($this->board_url, array('http://' => '')) . $this->config['BoardName'] . '/' . strtr($dat, array('.dat' => '')) . '/';
 		}
 
 		// datファイルを取得
