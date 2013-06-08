@@ -13,16 +13,10 @@
  **/
 
 // 引数チェック
-if (!isset($argv[1])) {
-	fputs(STDERR, "Usage: graph_2ch CONFIG_FILE\n");
-	exit(1);
+$config_file = null;
+if (isset($argv[1])) {
+	$config_file = $argv[1];
 }
-
-// 設定ファイルの位置を取得
-$config_file = realpath($argv[1]);
-
-// カレントディレクトリ位置の変更
-chdir(dirname(__FILE__));
 
 // 実行
 $g2ch = new Graph2ch();
@@ -44,23 +38,38 @@ class Graph2ch
 	 */
 	public function run($config_file)
 	{
-		// コンフィグファイルの読み込み
-		$this->config = $this->readConfigFile($config_file);
+		try {
+			// 引数のチェック
+			if (null === $config_file) {
+				// 引数が無い
+				throw new Exception('Usage: graph_2ch CONFIG_FILE');
+			}
 
-		// 板一覧から対象板のURLを取得
-		$this->board_url = $this->getBoardUrl($this->config['BoardName']);
+			// コンフィグファイルの読み込み
+			$this->config = $this->readConfigFile($config_file);
 
-		// 板からスレッド一覧を取得
-		$thread_list = $this->getThreadList($this->board_url . $this->config['BoardName']);
+			// カレントディレクトリ位置の変更（キャッシュファイルの位置を相対パスで扱うため）
+			chdir(dirname(__FILE__));
 
-		// スレッド一覧からキーワードを含んだスレッド群を特定
-		$threads = $this->searchThreadList($thread_list, $this->config['Keyword']);
+			// 板一覧から対象板のURLを取得
+			$this->board_url = $this->getBoardUrl($this->config['BoardName']);
 
-		// 勢いを算出
-		$output_forces = $this->getOutputForces($threads);
+			// 板からスレッド一覧を取得
+			$thread_list = $this->getThreadList($this->board_url . $this->config['BoardName']);
 
-		// 出力
-		print $output_forces;
+			// スレッド一覧からキーワードを含んだスレッド群を特定
+			$threads = $this->searchThreadList($thread_list, $this->config['Keyword']);
+
+			// 勢いを算出
+			$output_forces = $this->getOutputForces($threads);
+
+			// 出力
+			print $output_forces;
+		} catch (Exception $e) {
+			// エラーを出力して終了
+			fputs(STDERR, $e->getMessage() . "\n");
+			exit(1);
+		}
 	}
 
 	/**
@@ -81,6 +90,7 @@ class Graph2ch
 	 * コンフィグファイルの読み込み
 	 * @param string $config_file コンフィグファイルのパス
 	 * @return array 設定値の配列
+	 * @throws Exception 各種設定ファイル異常
 	 */
 	protected function readConfigFile($config_file)
 	{
@@ -89,8 +99,7 @@ class Graph2ch
 			$config_text = file_get_contents($config_file);
 		} else {
 			// ファイルが読めなかった場合
-			fputs(STDERR, 'Unable to read config file.' . "\n");
-			exit(1);
+			throw new Exception(sprintf('Unable to read config file. (%s)', $config_file));
 		}
 
 		// 設定初期値の取得
@@ -100,8 +109,7 @@ class Graph2ch
 		$add_config_arr = json_decode($config_text, true);
 		if (null === $add_config_arr) {
 			// 不正なjson形式
-			fputs(STDERR, 'Syntax error config file. (' . $config_file . ')' . "\n");
-			exit(1);
+			throw new Exception(sprintf('Syntax error config file. (%s)', $config_file));
 		}
 		$config_arr = array_merge($config_arr, $add_config_arr);
 
@@ -117,8 +125,7 @@ class Graph2ch
 		foreach ($required_keys as $key) {
 			if (!in_array($key, $config_keys)) {
 				// 必須項目がセットされていない
-				fputs(STDERR, '"' . $key . '" is required on config file.' . "\n");
-				exit(1);
+				throw new Exception(sprintf('"%s" is required on config file.', $key));
 			}
 		}
 
@@ -129,6 +136,7 @@ class Graph2ch
 	 * 板URLの取得
 	 * @param string $board_name 対象板
 	 * @return string 板のURL
+	 * @throws Exception 板の取得エラー
 	 */
 	protected function getBoardUrl($board_name)
 	{
@@ -147,15 +155,17 @@ class Graph2ch
 			}
 		}
 
-		// 対象板が見つからなかった
-		fputs(STDERR, 'No match board (' . $board_name . ")\n");
-		exit(1);
+		if (null === $this->board_url) {
+			// 対象の板が見つからなかった
+			throw new Exception(sprintf('No match board. (%s)', $board_name));
+		}
 	}
 
 	/**
 	 * スレ一覧の取得
 	 * @param string $board_url 対象板のURL
 	 * @return array スレッドリスト
+	 * @throws Exception 各種スレ一覧の取得失敗
 	 */
 	protected function getThreadList($board_url)
 	{
@@ -179,13 +189,11 @@ class Graph2ch
 					}
 				} catch (Exception $sub_e) {
 					// 移転先の取得失敗
-					fputs(STDERR, 'Moved server get error. (' . $e->getCode() . '->' . $sub_e->getCode() . ")\n");
-					exit(1);
+					throw new Exception(sprintf('Moved server get error. (%s -> %s)', $e->getCode(), $sub_e->getCode()));
 				}
 			} else {
 				// スレッド一覧の取得失敗
-				fputs(STDERR, 'Thread list fetch error. (' . $e->getCode() . ")\n");
-				exit(1);
+				throw new Exception(sprintf('Thread list fetch error. (%s)', $e->getCode()));
 			}
 		}
 
@@ -350,7 +358,7 @@ class Graph2ch
 			return $ret;
 		} else {
 			// その他の場合、例外を投げる
-			throw new Exception('status code error. code=' . $status_code, $status_code);
+			throw new Exception('cURL status code error. code=' . $status_code, $status_code);
 		}
 	}
 }
