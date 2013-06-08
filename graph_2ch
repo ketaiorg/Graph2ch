@@ -12,6 +12,9 @@
  * @license		BSD
  **/
 
+// カレントディレクトリ位置の変更
+chdir(dirname(__FILE__));
+
 // 引数チェック
 if (!isset($argv[1])) {
 	fputs(STDERR, "Usage: graph_2ch CONFIG_FILE\n");
@@ -131,8 +134,14 @@ class Graph2ch
 	 */
 	protected function getBoardUrl($board_name)
 	{
+		// 検索パターン
 		$pattern = sprintf('/^\<A HREF=(.+\.2ch\.net\/)%s\/\>.*$/i', $board_name);
-		$menu_list = explode("\n", $this->getUrl(self::MENU_LIST_URL));
+
+		// 通信してデータを取得
+		$menu_list_html = $this->getUrl(self::MENU_LIST_URL);
+
+		// ループして対象を検索
+		$menu_list = explode("\n", $menu_list_html);
 		foreach ($menu_list as $line) {
 			if (preg_match($pattern, $line, $matches)) {
 				// 対象の板が見つかったらそれをURL形式にして返す
