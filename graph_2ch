@@ -53,28 +53,11 @@ class Graph2ch
 		// 板からスレッド一覧を取得
 		$thread_list = $this->getThreadList($this->board_url . $this->config['BoardName']);
 
-		// スレッド一覧からキーワードで最新スレッドを特定
+		// スレッド一覧からキーワードを含んだスレッド群を特定
 		$threads = $this->searchThreadList($thread_list, $this->config['Keyword']);
 
-		// キーワードに一致するスレッドがあったかで分岐
-		$output_forces = 0;
-		foreach ($threads as $th) {
-			if (empty($threads)) {
-				// 対象スレッド無し
-				$forces = 0;
-			} else {
-				// レスを取得
-				$res_list = $this->getResList($th['dat']);
-
-				// スレッドの勢いを調べる
-				$forces = $this->getForces($res_list);
-			}
-
-			// 一番勢いの高いものを出力する
-			if ($forces > $output_forces) {
-				$output_forces = $forces;
-			}
-		}
+		// 勢いを算出
+		$output_forces = $this->getOutputForces($threads);
 
 		// 出力
 		print $output_forces;
@@ -90,7 +73,7 @@ class Graph2ch
 			'MenuListUrl' => 'http://menu.2ch.net/bbsmenu.html',
 			'DatCacheUrl' => 'http://bg20.2ch.net/test/r.so/',
 			'Period' => '3600',
-			'CacheDir' => './.graph_2ch_cache',
+			'CacheDir' => './.graph_2ch_cache',		// プログラム本体のディレクトリを起点とする
 		);
 	}
 
@@ -232,6 +215,36 @@ class Graph2ch
 		}
 
 		return $ret_arr;
+	}
+
+	/**
+	 * 出力用勢い取得
+	 * @param array $threads キーワードを含んだスレッド群を格納した配列
+	 * @return int 勢いを表す数字
+	 */
+	protected function getOutputForces($threads)
+	{
+		// キーワードに一致するスレッドがあったかで分岐
+		$output_forces = 0;
+		foreach ($threads as $th) {
+			if (empty($threads)) {
+				// 対象スレッド無し
+				$forces = 0;
+			} else {
+				// レスを取得
+				$res_list = $this->getResList($th['dat']);
+
+				// スレッドの勢いを調べる
+				$forces = $this->getForces($res_list);
+			}
+
+			// 一番勢いの高いものを出力する
+			if ($forces > $output_forces) {
+				$output_forces = $forces;
+			}
+		}
+
+		return $output_forces;
 	}
 
 	/**
