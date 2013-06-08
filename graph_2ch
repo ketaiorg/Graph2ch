@@ -92,10 +92,6 @@ class Graph2ch
 			// ファイルの読み込み
 			$config_text = file_get_contents($config_file);
 		} else {
-			$config_text = false;
-		}
-
-		if (false === $config_text) {
 			// ファイルが読めなかった場合
 			fputs(STDERR, 'Unnable read config file. (' . $config_file . ')' . "\n");
 			exit(1);
