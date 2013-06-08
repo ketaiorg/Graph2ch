@@ -46,7 +46,7 @@ class Graph2ch
 		$this->config = $this->readConfigFile($config_file);
 
 		// 板一覧から対象板のURLを取得
-		$this->board_url = $this->getBordUrl($this->config['BoardName']);
+		$this->board_url = $this->getBoardUrl($this->config['BoardName']);
 
 		// 板からスレッド一覧を取得
 		$thread_list = $this->getThreadList($this->board_url . $this->config['BoardName']);
@@ -129,7 +129,7 @@ class Graph2ch
 	 * @param string $board_name 対象板
 	 * @return string 板のURL
 	 */
-	protected function getBordUrl($board_name)
+	protected function getBoardUrl($board_name)
 	{
 		$pattern = sprintf('/^\<A HREF=(.+\.2ch\.net\/)%s\/\>.*$/i', $board_name);
 		$menu_list = explode("\n", $this->getUrl(self::MENU_LIST_URL));
