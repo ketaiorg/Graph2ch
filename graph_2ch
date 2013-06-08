@@ -83,6 +83,7 @@ class Graph2ch
 			'DatCacheUrl' => 'http://bg20.2ch.net/test/r.so/',
 			'Period' => '3600',
 			'CacheDir' => './.graph_2ch_cache',		// プログラム本体のディレクトリを起点とする
+			'CacheExpire' => '86400',
 		);
 	}
 
@@ -143,8 +144,25 @@ class Graph2ch
 		// 検索パターン
 		$pattern = sprintf('/^\<A HREF=(.+\.2ch\.net\/)%s\/\>.*$/i', $board_name);
 
-		// 通信してデータを取得
-		$menu_list_html = $this->getUrl($this->config['MenuListUrl']);
+		// キャッシュファイルの読み込み
+		$cache_file = $this->config['CacheDir'] . '/bbsmenu.html';
+		$last_access = $this->getCacheTimestamp($cache_file);
+
+		try {
+			// 通信してデータを取得
+			$menu_list_html = $this->getUrl($this->config['MenuListUrl'], $last_access);
+
+			// キャッシュファイルに保存
+			$this->putCacheFile($cache_file, $menu_list_html);
+		} catch (Exception $e) {
+			if ('304' == $e->getCode() and file_exists($cache_file)) {
+				// キャッシュファイルを利用
+				$menu_list_html = file_get_contents($cache_file);
+			} else {
+				// その他のエラーはそのままスロー
+				throw $e;
+			}
+		}
 
 		// ループして対象を検索
 		$menu_list = explode("\n", $menu_list_html);
@@ -360,6 +378,59 @@ class Graph2ch
 			// その他の場合、例外を投げる
 			throw new Exception('cURL status code error. code=' . $status_code, $status_code);
 		}
+	}
+
+	/**
+	 * キャッシュ時刻取得
+	 * キャッシュファイルが作られた時間を取得する。
+	 * ただしキャッシュファイルが無かったり、有効期限が切れている場合は0を返す。
+	 * @param string $file_name キャッシュファイル名
+	 * @return int キャッシュファイルのタイムスタンプ
+	 */
+	protected function getCacheTimestamp($file_name)
+	{
+		$last_access = 0;
+		if (file_exists($file_name)) {
+			// キャッシュファイルが存在
+			$cache_mtime = filemtime($file_name);		// キャッシュが作られたタイムスタンプを取得
+			if (time() - $cache_mtime < $this->config['CacheExpire']) {
+				// キャッシュの有効期限がまだ切れていない
+				$last_access = $cache_mtime;
+			}
+		}
+
+		return $last_access;
+	}
+
+	/**
+	 * キャッシュファイルへのデータ出力
+	 * @param string $file_name キャッシュファイル名
+	 * @param string $data 出力データ
+	 * @throws Exception ディレクトリ作成エラー, ファイル出力エラー
+	 */
+	protected function putCacheFile($file_name, $data)
+	{
+		// ディレクトリがあるか確認
+		$dir_name = dirname($file_name);
+		if (!file_exists($dir_name)) {
+			// 無ければ作成
+			if (!mkdir($dir_name)) {
+				throw new Exception(sprintf('Cache directory make error. (%s)', $dir_name));
+			}
+		}
+
+		// ファイルに出力
+		$fp = fopen($file_name, 'w');		// 書き込みモードでファイルをオープン
+		if ((empty($fp))) {
+			// 書き込みエラー
+			throw new Exception(sprintf('Cache file output error. (%s)', $file_name));
+		}
+
+		// データの書き出し
+		flock($fp, LOCK_EX);
+		fputs($fp, $data);
+		flock($fp, LOCK_UN);
+		fclose($fp);
 	}
 }
 
