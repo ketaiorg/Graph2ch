@@ -80,7 +80,7 @@ class Graph2ch
 	protected function getDefaultConfig()
 	{
 		return array(
-			'MenuListUrl' => 'http://menu.2ch.net/bbsmenu.html',
+			'MenuListUrl' => 'http://menu.2ch.sc/bbsmenu.html',
 			'DatCacheUrl' => '',
 			//'DatCacheUrl' => 'http://bg20.2ch.net/test/r.so/',		// バーボンハウス入りを避けることができるキャッシュサーバ
 			'Period' => '3600',
@@ -144,7 +144,7 @@ class Graph2ch
 	protected function getBoardUrl($board_name)
 	{
 		// 検索パターン
-		$pattern = sprintf('/^\<A HREF=(.+\.2ch\.net\/)%s\/\>.*$/i', $board_name);
+		$pattern = sprintf('/^\<A HREF=(.+\.2ch\.(sc|net)\/)%s\/\>.*$/i', $board_name);
 
 		// メニューリストを取得
 		$menu_list_html = $this->getUrl($this->config['MenuListUrl'], true);
@@ -292,7 +292,7 @@ class Graph2ch
 		// 後ろから検索
 		for ($i = $start; $i >= 0; $i--) {
 			$tmp_arr = explode('<>', $res_list[$i]);
-			$res_ts = strtotime(mb_substr($tmp_arr[2], 0, 10) . ' ' . mb_substr($tmp_arr[2], -23, 8));
+			$res_ts = strtotime(mb_substr($tmp_arr[2], 0, 10) . ' ' . mb_substr($tmp_arr[2], 15, 8));
 			if (time() - $this->config['Period'] > $res_ts) {
 				// ここまでが期間内
 				$res_value = $res_value - $i;
