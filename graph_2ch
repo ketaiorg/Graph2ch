@@ -295,7 +295,7 @@ class Graph2ch
 			$res_ts = strtotime(mb_substr($tmp_arr[2], 0, 10) . ' ' . mb_substr($tmp_arr[2], 15, 8));
 			if (time() - $this->config['Period'] > $res_ts) {
 				// ここまでが期間内
-				$res_value = $res_value - $i;
+				$res_value = $res_value - $i - 1;
 				break;
 			}
 		}
